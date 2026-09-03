@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+npm-debug.log
+
+# Generated data / models / logs (regenerate via README steps)
+data/events.csv
+ml-service/models/*.pkl
+audit/audit_log.jsonl
+evaluation/results.json
+
+# OS
+.DS_Store
+data/oracle_potential_outcomes.csv
+ml-service/models/*.json
+evaluation/ablation_results.json
+ml-service/models/*.db
+ml-service/models/*.db-*
+ml-service/models/decision_store.jsonl
+ml-service/models/feedback_log.jsonl
+chaos/chaos_test_results.json
+evaluation/*_results.json
+evaluation/final_business_benchmark.json

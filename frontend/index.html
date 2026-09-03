@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Recoup — AI Revenue Recovery</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --border:#22303c; --accent:#3ddc97; --danger:#ff6b6b; --text:#e8eef2; --muted:#8ba0ad; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: 'Segoe UI', system-ui, sans-serif; }
+  .app { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .tag { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .card h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .big { font-size: 28px; font-weight: 700; }
+  .accent { color: var(--accent); }
+  .danger { color: var(--danger); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 20px; }
+  .panel h2 { margin-top:0; font-size: 16px; }
+  label { display:block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, select { width: 100%; padding: 8px; background: #0d1319; border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+  button { margin-top: 16px; padding: 10px 18px; background: var(--accent); border: none; border-radius: 6px; color: #06120c; font-weight: 700; cursor: pointer; }
+  button:hover { opacity: 0.9; }
+  .row { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .decision-box { margin-top: 18px; padding: 16px; border-radius: 8px; border: 1px solid var(--border); background: #0d1319; }
+  .badge { display:inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.approved { background: rgba(61,220,151,0.15); color: var(--accent); }
+  .badge.review { background: rgba(255,193,7,0.15); color: #ffc107; }
+  .badge.rejected { background: rgba(255,107,107,0.15); color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .audit-item { font-size: 12px; font-family: monospace; color: var(--muted); padding: 6px 0; border-bottom: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const API = "http://localhost:4000/api";
+
+function Scoreboard() {
+  const [evalData, setEvalData] = useState(null);
+  useEffect(() => {
+    fetch(`${API}/evaluation`).then(r => r.json()).then(setEvalData).catch(() => {});
+  }, []);
+  if (!evalData || evalData.error) return (
+    <div className="panel">
+      <h2>Evaluation Scoreboard</h2>
+      <p style={{color:"var(--muted)"}}>No evaluation run yet. Run: <code>cd evaluation && python3 evaluate.py</code></p>
+    </div>
+  );
+  return (
+    <div className="grid">
+      <div className="card">
+        <h3>Baseline (always retry)</h3>
+        <div className="big">₹{evalData.baseline.mean_net_reward.toLocaleString()}</div>
+        <div style={{color:"var(--muted)", fontSize:12}}>mean net reward / event (oracle-scored)</div>
+      </div>
+      <div className="card">
+        <h3>ML-only (no uplift/cost)</h3>
+        <div className="big">₹{evalData.ml_only.mean_net_reward.toLocaleString()}</div>
+        <div style={{color:"var(--muted)", fontSize:12}}>mean net reward / event (oracle-scored)</div>
+      </div>
+      <div className="card">
+        <h3>Recoup (uplift + net value + policy)</h3>
+        <div className="big accent">₹{evalData.recoup.mean_net_reward.toLocaleString()}</div>
+        <div style={{color:"var(--muted)", fontSize:12}}>
+          mean net reward / event · +{evalData.lift_over_baseline_pct}% vs baseline · +{evalData.lift_over_ml_only_pct}% vs ML-only
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionForm({ onDecision }) {
+  const [form, setForm] = useState({
+    event_id: "demo-" + Math.random().toString(36).slice(2, 7),
+    merchant_category: "ecommerce",
+    customer_value_tier: "high",
+    event_type: "payment_attempt",
+    payment_method: "card",
+    decline_code: "network_error",
+    amount: 3200,
+    customer_retry_propensity_observed: 0.6,
+    merchant_baseline_fail_rate: 0.2,
+    prior_failure_count: 1,
+    minutes_since_last_failure: 240,
+    prior_recovery_count: 0,
+    prior_recovery_rate: -1,
+    recent_method_switch_count: 0,
+    retry_count: 1,
+    nudges_today: 0,
+    discount_pct: 0,
+  });
+  const [loading, setLoading] = useState(false);
+
+  const update = (k, v) => setForm({ ...form, [k]: v });
+
+  const submit = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/decide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await r.json();
+      onDecision(data);
+    } catch (e) {
+      onDecision({ error: "Could not reach backend. Is it running on :4000?" });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="panel">
+      <h2>Decision Screen — send a failed-payment event</h2>
+      <div className="row">
+        <div>
+          <label>Merchant category</label>
+          <select value={form.merchant_category} onChange={e => update("merchant_category", e.target.value)}>
+            {["ecommerce","subscription","b2b_invoice","food_delivery","edtech"].map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Customer value tier</label>
+          <select value={form.customer_value_tier} onChange={e => update("customer_value_tier", e.target.value)}>
+            {["low","mid","high","unknown"].map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Decline code</label>
+          <select value={form.decline_code} onChange={e => update("decline_code", e.target.value)}>
+            {["insufficient_funds","issuer_declined","expired_card","risk_flagged","network_error","invalid_otp","limit_exceeded","none"].map(o => <option key={o}>{o}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="row">
+        <div>
+          <label>Amount (₹)</label>
+          <input type="number" value={form.amount} onChange={e => update("amount", parseFloat(e.target.value))} />
+        </div>
+        <div>
+          <label>Prior failures for this customer</label>
+          <input type="number" value={form.prior_failure_count} onChange={e => update("prior_failure_count", parseInt(e.target.value))} />
+        </div>
+        <div>
+          <label>Retry count so far</label>
+          <input type="number" value={form.retry_count} onChange={e => update("retry_count", parseInt(e.target.value))} />
+        </div>
+      </div>
+      <div className="row">
+        <div>
+          <label>Nudges already sent today</label>
+          <input type="number" value={form.nudges_today} onChange={e => update("nudges_today", parseInt(e.target.value))} />
+        </div>
+        <div>
+          <label>Discount requested (%)</label>
+          <input type="number" value={form.discount_pct} onChange={e => update("discount_pct", parseFloat(e.target.value))} />
+        </div>
+        <div>
+          <label>Prior recovery rate (-1 = no history)</label>
+          <input type="number" step="0.1" value={form.prior_recovery_rate} onChange={e => update("prior_recovery_rate", parseFloat(e.target.value))} />
+        </div>
+      </div>
+      <button onClick={submit} disabled={loading}>{loading ? "Deciding..." : "Get Recoup's Decision"}</button>
+    </div>
+  );
+}
+
+function DecisionResult({ result }) {
+  if (!result) return null;
+  if (result.error) return <div className="panel"><p className="danger">{result.error}</p></div>;
+
+  const badgeClass = !result.policy_approved ? "rejected" : result.requires_human_review ? "review" : "approved";
+  const badgeText = !result.policy_approved ? "Rejected / escalated" : result.requires_human_review ? "Requires human review" : "Approved & simulated";
+  const tier = result.uncertainty?.confidence_tier;
+  const tierClass = tier === "HIGH" ? "approved" : tier === "MEDIUM" ? "review" : "rejected";
+
+  return (
+    <div className="panel">
+      <h2>Decision Trace</h2>
+      <div className="decision-box">
+        <span className={`badge ${badgeClass}`}>{badgeText}</span>{" "}
+        <span className={`badge ${tierClass}`}>confidence: {tier}</span>{" "}
+        <span className="badge review">drift: {result.drift?.status}</span>
+        <p style={{marginTop:12}}>
+          Chosen intervention: <strong>{result.chosen_intervention || "none"}</strong><br/>
+          Reason: {result.decision_reason}<br/>
+          Policy: {result.policy_reason}
+        </p>
+
+        <h3 style={{fontSize:13, color:"var(--muted)", marginTop:18}}>ROOT-CAUSE POSTERIOR (P(decline_code | context))</h3>
+        <table>
+          <tbody>
+            {Object.entries(result.root_cause_posterior || {}).sort((a,b)=>b[1]-a[1]).map(([k,v]) => (
+              <tr key={k}><td>{k}</td><td>{typeof v === "number" ? (v*100).toFixed(1)+"%" : v}</td></tr>
+            ))}
+          </tbody>
+        </table>
+
+        <h3 style={{fontSize:13, color:"var(--muted)", marginTop:18}}>UPLIFT vs NO-ACTION (T-learner CATE) &amp; NET VALUE</h3>
+        <table>
+          <thead><tr><th>Arm</th><th>P(recovered)</th><th>Uplift</th><th>Net value (₹)</th></tr></thead>
+          <tbody>
+            {Object.entries(result.recovery_probabilities || {}).filter(([k])=>k!=="no_action").map(([k, v]) => (
+              <tr key={k}>
+                <td>{k}</td>
+                <td>{(v * 100).toFixed(1)}%</td>
+                <td>{result.uplift_estimates?.[k] != null ? (result.uplift_estimates[k]*100).toFixed(1)+"%" : "—"}</td>
+                <td>{result.expected_net_value?.[k] ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AuditTimeline() {
+  const [audit, setAudit] = useState([]);
+  const refresh = () => fetch(`${API}/audit?limit=15`).then(r => r.json()).then(setAudit).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+  return (
+    <div className="panel">
+      <h2>Audit Timeline <button style={{marginTop:0, padding:"4px 10px", fontSize:12}} onClick={refresh}>Refresh</button></h2>
+      {audit.length === 0 && <p style={{color:"var(--muted)"}}>No decisions logged yet — submit one above.</p>}
+      {audit.slice().reverse().map((a, i) => (
+        <div className="audit-item" key={i}>
+          [{a.event_id}] → {a.chosen_intervention || "none"} · EV ₹{a.expected_value?.toFixed?.(2)} ·
+          {a.policy_result?.approved ? " approved" : " rejected"} ·
+          {a.requires_human_review ? " human review required" : " automated"}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function App() {
+  const [result, setResult] = useState(null);
+  return (
+    <div className="app">
+      <h1>Recoup <span className="accent">●</span></h1>
+      <div className="tag">AI Revenue Recovery — Razorpay AI Buildathon 2026 · every recovery action is explainable, bounded, and gated</div>
+      <Scoreboard />
+      <DecisionForm onDecision={setResult} />
+      <DecisionResult result={result} />
+      <AuditTimeline />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
